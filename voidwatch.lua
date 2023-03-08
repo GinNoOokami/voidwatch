@@ -12,6 +12,7 @@ require('tables')
 require('strings')
 require('pack')
 require('actions')
+require('vectors')
 packets = require('packets')
 res = require('resources')
 config = require('config')
@@ -138,10 +139,28 @@ end
 local function get_mob_by_name(name)
     local mobs = windower.ffxi.get_mob_array()
     for i, mob in pairs(mobs) do
-        if (mob.name == name) and (math.sqrt(mob.distance) < 6) then
+        if (mob.name == name) and mob.hpp > 0 and mob.distance < 2500 then
             return mob
         end
     end
+end
+
+local function get_player_position()
+    local player = windower.ffxi.get_mob_by_target('me')
+    return V{player.x, player.y}
+end
+
+local function move_towards_vector(target_vector)
+	running = true
+    windower.ffxi.run(target_vector[1], target_vector[2])
+end
+
+local function get_vector_to_mob(target)
+    return V{target.x, target.y} - get_player_position()
+end
+
+local function get_vector_to_target(target)
+    return target - get_player_position()
 end
 
 local function poke_thing(thing)
@@ -184,10 +203,19 @@ end
 
 local function poke_box()
 	local npc = get_mob_by_name('Riftworn Pyxis')
-	if npc and npc.distance <= interact_distance_square then
-		log('poke_box')
-		wait_for_box_0x34 = true
-		poke_thing('Riftworn Pyxis')
+	if npc then
+		if npc.distance <= interact_distance_square then
+			log('poke_box')
+			wait_for_box_0x34 = true
+			running = false
+			windower.ffxi.run(false)
+			poke_thing('Riftworn Pyxis')
+		else
+			log('box out of range, moving towards...')
+			local target_vector = get_vector_to_mob(npc)
+			move_towards_vector(target_vector)
+			coroutine.schedule(poke_box, 1)
+		end
 	end
 end
 
@@ -274,6 +302,21 @@ local function trade_cells()
 			coroutine.schedule(poke_rift, 1.5)
 		end
     end
+end
+
+local function approach_rift()
+	local npc = get_mob_by_name('Planar Rift')
+	if npc then
+		if npc.distance <= interact_distance_square then
+			running = false
+			windower.ffxi.run(false)
+			coroutine.schedule(trade_cells, 0)
+		else
+			local target_vector = get_vector_to_mob(npc)
+			move_towards_vector(target_vector)
+			coroutine.schedule(approach_rift, 1)
+		end
+	end
 end
 
 local function sparky_purge()
@@ -521,7 +564,7 @@ local function parse_incoming(id, data)
 				if npc and npc.name == 'Planar Rift' and npc.distance <= interact_distance_square then
 					wait_for_rift_spawn = false
 					log('rift spawn')
-					coroutine.schedule(trade_cells, 1)
+					coroutine.schedule(approach_rift, 1)
 				end
 			end
 		elseif id == 0x2a then
@@ -723,7 +766,7 @@ local function handle_command(...)
     if args[1] == "t" then
 		reset()
 		started = true
-        trade_cells()
+        approach_rift()
 	elseif args[1] == "bc" then
 		number_to_buy = 1
 		if args[2] then
